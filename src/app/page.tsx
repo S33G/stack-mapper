@@ -5,6 +5,7 @@ import { AppState, Connector, PinMapping, Preset } from '@/types';
 import ConnectorConfiguration from '@/components/ConnectorConfiguration';
 import PinoutVisualizer from '@/components/PinoutVisualizer';
 import PresetManager from '@/components/PresetManager';
+import BetaBadge from '@/components/BetaBadge';
 
 export default function Home() {
   const [appState, setAppState] = useState<AppState>({
@@ -98,9 +99,12 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="container mx-auto px-4 py-8">
         <header className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-            StackMapper
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+              StackMapper
+            </h1>
+            <BetaBadge />
+          </div>
           <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
             Configure your ESC and Flight Controller, then map pins visually. Save and reuse with presets.
           </p>
