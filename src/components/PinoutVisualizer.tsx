@@ -40,6 +40,21 @@ export default function PinoutVisualizer({
     pinRefs.current[type][id] = el;
   };
 
+  // Compute an anchor point on the INSIDE edge of the pin (toward the center gap)
+  const getAnchorXY = useCallback((pinId: number, type: 'esc' | 'fc') => {
+    const containerEl = stageRef.current;
+    const pinEl = pinRefs.current[type][pinId] as HTMLElement | null;
+    if (!containerEl || !pinEl) return null;
+    const PAD = 8; // inset a touch to avoid overlapping the pin chrome
+    const containerRect = containerEl.getBoundingClientRect();
+    const pinRect = pinEl.getBoundingClientRect();
+    const x = type === 'esc'
+      ? pinRect.right - PAD - containerRect.left // ESC pins live on the right side of the left column
+      : pinRect.left + PAD - containerRect.left; // FC pins live on the left side of the right column
+    const y = pinRect.top + pinRect.height / 2 - containerRect.top;
+    return { x, y };
+  }, []);
+
   // Force re-render on resize so wire positions stay in sync
   const [viewportKey, setViewportKey] = useState(0);
   useEffect(() => {
@@ -153,17 +168,12 @@ export default function PinoutVisualizer({
     event.preventDefault();
     event.stopPropagation();
 
-    const rect = event.currentTarget.getBoundingClientRect();
-    const stageRect = stageRef.current?.getBoundingClientRect();
-
-    if (stageRect) {
-      const x = rect.left + rect.width / 2 - stageRect.left;
-      const y = rect.top + rect.height / 2 - stageRect.top;
-
+    const anchor = getAnchorXY(pinId, type);
+    if (anchor) {
       setDragState({
         isDragging: true,
-        startPin: { id: pinId, type, x, y },
-        currentPos: { x, y },
+        startPin: { id: pinId, type, x: anchor.x, y: anchor.y },
+        currentPos: { x: anchor.x, y: anchor.y },
       });
     }
   };
@@ -270,7 +280,7 @@ export default function PinoutVisualizer({
     const mappingForPin = mappings.find(m => (type === 'esc' ? m.escPin === pin.id : m.fcPin === pin.id));
 
     return (
-      <div className={`flex items-center gap-3 ${type === 'esc' ? 'flex-row' : 'flex-row-reverse'}`}>
+  <div className={`flex items-center gap-3 ${type === 'esc' ? 'flex-row-reverse' : 'flex-row'}`}>
         {/* Pin container */}
         <div
           className="relative w-12 h-12 flex items-center justify-center flex-shrink-0"
@@ -305,10 +315,10 @@ export default function PinoutVisualizer({
             onMouseDown={(e) => handleMouseDown(pin.id, type, e)}
             onMouseUp={() => handleMouseUp(pin.id, type)}
             className={`
-              w-8 h-8 rounded-full border-2 transition-all transform hover:scale-110 cursor-grab active:cursor-grabbing relative z-10
+              w-8 h-8 rounded-full border-2 transition-all transform hover:scale-110 relative z-10
               ${isConnected
-                ? 'border-yellow-400 shadow-lg ring-2 ring-yellow-200'
-                : 'border-gray-400 hover:border-gray-300 hover:shadow-md'
+                ? 'border-yellow-400 shadow-lg ring-2 ring-yellow-200 cursor-move'
+                : 'border-gray-400 hover:border-gray-300 hover:shadow-md cursor-grab active:cursor-grabbing'
               }
             `}
             style={{
@@ -334,8 +344,8 @@ export default function PinoutVisualizer({
         </div>
 
         {/* Pin Labels - positioned next to pin */}
-        <div className={`flex items-center gap-2 ${type === 'esc' ? 'justify-start' : 'justify-end'} min-w-20`}>
-          <div className={`flex flex-col ${type === 'esc' ? 'items-start' : 'items-end'} pointer-events-none`}>
+        <div className={`flex items-center gap-2 ${type === 'esc' ? 'justify-end' : 'justify-start'} min-w-20`}>
+          <div className={`flex flex-col ${type === 'esc' ? 'items-end' : 'items-start'} pointer-events-none`}>
           <div className="text-xs font-bold text-white bg-gray-800 px-2 py-1 rounded shadow-sm border border-gray-600">
             {pin.label === pin.id.toString() || pin.label === `${pin.id}`
               ? `Pin ${pin.id}`
@@ -373,7 +383,7 @@ export default function PinoutVisualizer({
       <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <p className="text-sm text-blue-800 dark:text-blue-200">
-            Drag from one connector's pin to another connector's pin to create connections. Click a wire to remove it.
+            Drag from one connector's pin to another to create a connection. Drag from a connected pin to a new pin to edit (move) its cable. Use the × near ESC pins or the list below to remove.
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -415,7 +425,7 @@ export default function PinoutVisualizer({
               <div className="bg-gray-900 rounded p-4 relative">
                 <div className="flex flex-col gap-3">
                   {escConnector.pins.map((pin, index) => (
-                    <div key={pin.id} className="relative flex justify-start items-center h-12">
+                    <div key={pin.id} className="relative flex justify-end items-center h-12">
                       <PinComponent
                         pin={pin}
                         type="esc"
@@ -445,7 +455,7 @@ export default function PinoutVisualizer({
               <div className="bg-gray-900 rounded p-4 relative">
                 <div className="flex flex-col gap-3">
                   {fcConnector.pins.map((pin, index) => (
-                    <div key={pin.id} className="relative flex justify-end items-center h-12">
+                    <div key={pin.id} className="relative flex justify-start items-center h-12">
                       <PinComponent
                         pin={pin}
                         type="fc"
@@ -476,19 +486,13 @@ export default function PinoutVisualizer({
 
             if (!escPin || !fcPin) return null;
 
-            const containerEl = stageRef.current;
-            const escEl = pinRefs.current.esc[mapping.escPin] as HTMLElement | null;
-            const fcEl = pinRefs.current.fc[mapping.fcPin] as HTMLElement | null;
-            if (!containerEl || !escEl || !fcEl) return null;
-
-            const containerRect = containerEl.getBoundingClientRect();
-            const escRect = escEl.getBoundingClientRect();
-            const fcRect = fcEl.getBoundingClientRect();
-
-            const escX = escRect.left + escRect.width / 2 - containerRect.left;
-            const escY = escRect.top + escRect.height / 2 - containerRect.top;
-            const fcX = fcRect.left + fcRect.width / 2 - containerRect.left;
-            const fcY = fcRect.top + fcRect.height / 2 - containerRect.top;
+            const escAnchor = getAnchorXY(mapping.escPin, 'esc');
+            const fcAnchor = getAnchorXY(mapping.fcPin, 'fc');
+            if (!escAnchor || !fcAnchor) return null;
+            const escX = escAnchor.x;
+            const escY = escAnchor.y;
+            const fcX = fcAnchor.x;
+            const fcY = fcAnchor.y;
 
             // Calculate control points for curved wire
             const distance = fcX - escX;
