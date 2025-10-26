@@ -1,11 +1,13 @@
-'use client';
+ 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { AppState, Connector, PinMapping, Preset } from '@/types';
 import ConnectorConfiguration from '@/components/ConnectorConfiguration';
 import PinoutVisualizer from '@/components/PinoutVisualizer';
 import PresetManager from '@/components/PresetManager';
 import BetaBadge from '@/components/BetaBadge';
+import ShareUrlLoader from '@/components/ShareUrlLoader';
+import ShareButtons from '@/components/ShareButtons';
 
 export default function Home() {
   const [appState, setAppState] = useState<AppState>({
@@ -98,6 +100,21 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="container mx-auto px-4 py-8">
+        {/* Suspense-wrapped loader to parse share URL and update state */}
+        <Suspense fallback={null}>
+          <ShareUrlLoader
+            onLoad={(payload) => {
+              setAppState(prev => ({
+                ...prev,
+                escConnector: payload.e,
+                fcConnector: payload.f,
+                mappings: payload.m,
+                selectedPreset: null,
+              }));
+              setStep(3);
+            }}
+          />
+        </Suspense>
         <header className="mb-8">
           <div className="flex items-center gap-2">
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
@@ -204,7 +221,12 @@ export default function Home() {
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Pinout Mapping Visualizer</h2>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                  <ShareButtons
+                    escConnector={appState.escConnector}
+                    fcConnector={appState.fcConnector}
+                    mappings={appState.mappings}
+                  />
                   <button onClick={() => setStep(1)} className="px-3 py-1 text-sm rounded border border-gray-300 dark:border-gray-600">Edit ESC</button>
                   <button onClick={() => setStep(2)} className="px-3 py-1 text-sm rounded border border-gray-300 dark:border-gray-600">Edit FC</button>
                   <button onClick={() => setStep(0)} className="px-3 py-1 text-sm rounded text-gray-100 bg-gray-700 hover:bg-gray-800">Start Over</button>
