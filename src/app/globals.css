@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Custom animations for wire effects */
+@keyframes wire-flow {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: 20;
+  }
+}
+
+@keyframes wire-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 4px currentColor);
+  }
+  50% {
+    filter: drop-shadow(0 0 12px currentColor);
+  }
+}
+
+@keyframes pin-activity {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+.wire-animated {
+  animation: wire-flow 2s linear infinite, wire-glow 3s ease-in-out infinite;
+}
+
+.pin-connected {
+  animation: pin-activity 2s ease-in-out infinite;
+}
+
+/* Connector housing effects */
+.connector-housing {
+  background: linear-gradient(145deg, #1f2937 0%, #111827 50%, #0f172a 100%);
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.1),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.3),
+    0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.pin-socket {
+  background: radial-gradient(circle at 30% 30%, #374151, #1f2937);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.5),
+    inset 0 -1px 2px rgba(255, 255, 255, 0.1);
+}
+
+/* Wire physics simulation */
+.wire-path {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
