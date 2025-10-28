@@ -9,6 +9,8 @@ interface PinoutVisualizerProps {
   mappings: PinMapping[];
   onMappingsChange: (mappings: PinMapping[]) => void;
   onQuickSave?: (name?: string, description?: string) => void;
+  onESCChange?: (connector: Connector) => void;
+  onFCChange?: (connector: Connector) => void;
 }
 
 export default function PinoutVisualizer({
@@ -17,6 +19,8 @@ export default function PinoutVisualizer({
   mappings,
   onMappingsChange,
   onQuickSave,
+  onESCChange,
+  onFCChange,
 }: PinoutVisualizerProps) {
   const [dragState, setDragState] = useState<{
     isDragging: boolean;
@@ -27,6 +31,9 @@ export default function PinoutVisualizer({
     startPin: null,
     currentPos: null,
   });
+
+  // Click-to-select state for click-to-edit/connect without dragging
+  const [selectedPin, setSelectedPin] = useState<{ id: number; type: 'esc' | 'fc' } | null>(null);
 
   const svgRef = useRef<SVGSVGElement>(null);
   // stageRef is the visual area that also contains the SVG; all coordinates should be relative to this
@@ -78,6 +85,44 @@ export default function PinoutVisualizer({
       m => !(m.escPin === escPin && m.fcPin === fcPin)
     );
     onMappingsChange(filteredMappings);
+  };
+
+  // Click-to-connect/edit: supports selecting one pin, then clicking opposite side to connect.
+  const handleClickPin = (pinId: number, type: 'esc' | 'fc', event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (selectedPin && selectedPin.type !== type) {
+      if (selectedPin.type === 'esc' && type === 'fc') {
+        addMapping(selectedPin.id, pinId);
+      } else if (selectedPin.type === 'fc' && type === 'esc') {
+        addMapping(pinId, selectedPin.id);
+      }
+      setSelectedPin(null);
+      return;
+    }
+    // If same side and already have a selection, treat as move-on-same-side (edit)
+    if (selectedPin && selectedPin.type === type) {
+      if (type === 'fc') {
+        const existing = mappings.find(m => m.fcPin === selectedPin.id);
+        if (existing && selectedPin.id !== pinId) {
+          // Move the mapping to the newly clicked FC pin (overwrite conflicts)
+          addMapping(existing.escPin, pinId);
+          setSelectedPin(null);
+          return;
+        }
+      } else {
+        const existing = mappings.find(m => m.escPin === selectedPin.id);
+        if (existing && selectedPin.id !== pinId) {
+          // Move the mapping to the newly clicked ESC pin (overwrite conflicts)
+          addMapping(pinId, existing.fcPin);
+          setSelectedPin(null);
+          return;
+        }
+      }
+    }
+
+    // Otherwise set or toggle selection
+    setSelectedPin(sp => (sp && sp.id === pinId && sp.type === type ? null : { id: pinId, type }));
   };
 
   const getConnectionColor = (pinId: number, type: 'esc' | 'fc') => {
@@ -269,6 +314,82 @@ export default function PinoutVisualizer({
     ensureUniqueAndUpdate(index, current.escPin, fcPinId);
   };
 
+  // Inline editable label component
+  function InlineEditableLabel({ value, display, onChange, align = 'left' }: { value: string; display: string; onChange: (v: string) => void; align?: 'left' | 'right'; }) {
+    const [editing, setEditing] = useState(false);
+    const [text, setText] = useState(value);
+    useEffect(() => setText(value), [value]);
+
+    const commit = () => {
+      const trimmed = text.trim();
+      if (trimmed !== value) onChange(trimmed);
+      setEditing(false);
+    };
+
+    if (editing) {
+      return (
+        <input
+          autoFocus
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') { setText(value); setEditing(false); }
+          }}
+          className={`text-xs font-bold px-2 py-1 rounded border border-gray-500 bg-gray-800 text-white ${align === 'right' ? 'text-right' : 'text-left'}`}
+          placeholder="Label"
+        />
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        className={`text-xs font-bold text-white bg-gray-800 px-2 py-1 rounded shadow-sm border border-gray-600 ${align === 'right' ? 'text-right' : 'text-left'}`}
+        title="Click to edit label"
+        onClick={() => setEditing(true)}
+      >
+        {display}
+      </button>
+    );
+  }
+
+  // --- Inline label editing ---
+  const updatePinLabel = (type: 'esc' | 'fc', pinId: number, newLabel: string) => {
+    const target = type === 'esc' ? escConnector : fcConnector;
+    const updatedPins = target.pins.map(p => (p.id === pinId ? { ...p, label: newLabel } : p));
+    const updated = { ...target, pins: updatedPins } as Connector;
+    if (type === 'esc') {
+      onESCChange && onESCChange(updated);
+    } else {
+      onFCChange && onFCChange(updated);
+    }
+  };
+
+  // --- Reordering helpers (move and flip) ---
+  const movePin = (type: 'esc' | 'fc', fromIndex: number, direction: 'up' | 'down') => {
+    const target = type === 'esc' ? escConnector : fcConnector;
+    const pins = [...target.pins];
+    const toIndex = direction === 'up' ? fromIndex - 1 : fromIndex + 1;
+    console.log('Reordering pins', fromIndex, 'to', toIndex);
+    if (toIndex < 0 || toIndex >= pins.length) return;
+    const [moved] = pins.splice(fromIndex, 1);
+    pins.splice(toIndex, 0, moved);
+    const updated = { ...target, pins } as Connector;
+    console.log('Reordering pins', fromIndex, 'to', toIndex);
+    if (type === 'esc') onESCChange && onESCChange(updated);
+    else onFCChange && onFCChange(updated);
+  };
+
+  const flipPins = (type: 'esc' | 'fc') => {
+    const target = type === 'esc' ? escConnector : fcConnector;
+    const pins = [...target.pins].reverse();
+    const updated = { ...target, pins } as Connector;
+    if (type === 'esc') onESCChange && onESCChange(updated);
+    else onFCChange && onFCChange(updated);
+  };
+
   const PinComponent = ({ pin, type, pinIndex, containerOffset }: {
     pin: any;
     type: 'esc' | 'fc';
@@ -277,10 +398,11 @@ export default function PinoutVisualizer({
   }) => {
     const connectionColor = getConnectionColor(pin.id, type);
     const isConnected = connectionColor !== null;
-    const mappingForPin = mappings.find(m => (type === 'esc' ? m.escPin === pin.id : m.fcPin === pin.id));
+  const mappingForPin = mappings.find(m => (type === 'esc' ? m.escPin === pin.id : m.fcPin === pin.id));
+    const isSelected = selectedPin && selectedPin.id === pin.id && selectedPin.type === type;
 
     return (
-  <div className={`flex items-center gap-3 ${type === 'esc' ? 'flex-row-reverse' : 'flex-row'}`}>
+  <div className={`group flex items-center gap-3 ${type === 'esc' ? 'flex-row-reverse' : 'flex-row'}`}>
         {/* Pin container */}
         <div
           className="relative w-12 h-12 flex items-center justify-center flex-shrink-0"
@@ -314,12 +436,14 @@ export default function PinoutVisualizer({
           <button
             onMouseDown={(e) => handleMouseDown(pin.id, type, e)}
             onMouseUp={() => handleMouseUp(pin.id, type)}
+            onClick={(e) => handleClickPin(pin.id, type, e)}
             className={`
               w-8 h-8 rounded-full border-2 transition-all transform hover:scale-110 relative z-10
               ${isConnected
                 ? 'border-yellow-400 shadow-lg ring-2 ring-yellow-200 cursor-move'
                 : 'border-gray-400 hover:border-gray-300 hover:shadow-md cursor-grab active:cursor-grabbing'
               }
+              ${isSelected ? 'ring-2 ring-sky-400 ring-offset-2 ring-offset-gray-900' : ''}
             `}
             style={{
               backgroundColor: pin.color,
@@ -345,28 +469,40 @@ export default function PinoutVisualizer({
 
         {/* Pin Labels - positioned next to pin */}
         <div className={`flex items-center gap-2 ${type === 'esc' ? 'justify-end' : 'justify-start'} min-w-20`}>
-          <div className={`flex flex-col ${type === 'esc' ? 'items-end' : 'items-start'} pointer-events-none`}>
-          <div className="text-xs font-bold text-white bg-gray-800 px-2 py-1 rounded shadow-sm border border-gray-600">
-            {pin.label === pin.id.toString() || pin.label === `${pin.id}`
-              ? `Pin ${pin.id}`
-              : `${pin.label} (${pin.id})`
-            }
+          <div className={`flex flex-col ${type === 'esc' ? 'items-end' : 'items-start'}`}>
+            <InlineEditableLabel
+              value={pin.label}
+              display={pin.label === pin.id.toString() || pin.label === `${pin.id}` ? `Pin ${pin.id}` : `${pin.label} (${pin.id})`}
+              onChange={(val: string) => updatePinLabel(type, pin.id, val)}
+              align={type === 'esc' ? 'right' : 'left'}
+            />
+            <div className="text-xs text-gray-500 truncate max-w-20">
+              {pin.function}
+            </div>
+            <div className="mt-0.5 text-[10px] text-gray-400">Pos {pinIndex + 1}</div>
           </div>
-          <div className="text-xs text-gray-500 truncate max-w-20">
-            {pin.function}
-          </div>
-          </div>
-          {/* Delete mapping control near ESC pins only */}
-          {type === 'esc' && mappingForPin && (
+          {/* Per-pin delete control removed; deletion handled on cable hover/click */}
+
+          {/* Reorder controls (show on hover) */}
+          <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity pointer-events-auto relative z-20">
             <button
-              onClick={() => removeMapping(mappingForPin.escPin, mappingForPin.fcPin)}
-              className="ml-1 inline-flex items-center justify-center w-6 h-6 rounded-full border border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-              title="Remove connection"
-              aria-label="Remove connection"
-            >
-              ×
-            </button>
-          )}
+              type="button"
+              className="text-xs px-1 py-0.5 rounded border border-gray-500 text-gray-200 hover:bg-gray-700"
+              onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); movePin(type, pinIndex, 'up'); }}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); movePin(type, pinIndex, 'up'); }}
+              disabled={pinIndex === 0}
+              title="Move up"
+            >↑</button>
+            <button
+              type="button"
+              className="mt-1 text-xs px-1 py-0.5 rounded border border-gray-500 text-gray-200 hover:bg-gray-700"
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); movePin(type, pinIndex, 'down'); }}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); movePin(type, pinIndex, 'down'); }}
+              disabled={pinIndex === (type === 'esc' ? escConnector.pins.length - 1 : fcConnector.pins.length - 1)}
+              title="Move down"
+            >↓</button>
+          </div>
         </div>
       </div>
     );
@@ -383,7 +519,7 @@ export default function PinoutVisualizer({
       <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <p className="text-sm text-blue-800 dark:text-blue-200">
-            Drag from one connector's pin to another to create a connection. Drag from a connected pin to a new pin to edit (move) its cable. Use the × near ESC pins or the list below to remove.
+            Drag from one connector's pin to another to create a connection. Or click a pin, then click a pin on the other side to connect. To move an existing cable: click a connected FC pin, then click a different FC pin (or click a connected ESC pin, then click a different ESC pin). Dropping on a used pin overwrites that connection.
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -411,13 +547,17 @@ export default function PinoutVisualizer({
 
       {/* Main Connector Area */}
   <div ref={stageRef} className="relative bg-gray-100 dark:bg-gray-800 rounded-xl p-8">
-        <div className="flex justify-between items-start gap-8" style={{ minHeight: `${Math.max(escConnector.pinCount, fcConnector.pinCount) * 60 + 100}px` }}>
+  <div className="relative z-10 pointer-events-auto flex justify-between items-start gap-8" style={{ minHeight: `${Math.max(escConnector.pinCount, fcConnector.pinCount) * 60 + 100}px` }}>
           {/* ESC Connector */}
           <div className="flex-shrink-0">
-            <div className="text-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {escConnector.name}
-              </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{escConnector.name}</h3>
+              <button
+                type="button"
+                onClick={() => flipPins('esc')}
+                className="text-xs px-2 py-1 rounded border border-gray-400 text-gray-200 hover:bg-gray-700"
+                title="Flip order"
+              >Flip</button>
             </div>
 
             {/* ESC Connector Housing */}
@@ -425,7 +565,7 @@ export default function PinoutVisualizer({
               <div className="bg-gray-900 rounded p-4 relative">
                 <div className="flex flex-col gap-3">
                   {escConnector.pins.map((pin, index) => (
-                    <div key={pin.id} className="relative flex justify-end items-center h-12">
+                    <div key={pin.id} className="relative z-10 flex justify-end items-center h-12">
                       <PinComponent
                         pin={pin}
                         type="esc"
@@ -444,10 +584,14 @@ export default function PinoutVisualizer({
 
           {/* FC Connector */}
           <div className="flex-shrink-0">
-            <div className="text-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {fcConnector.name}
-              </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{fcConnector.name}</h3>
+              <button
+                type="button"
+                onClick={() => flipPins('fc')}
+                className="text-xs px-2 py-1 rounded border border-gray-400 text-gray-200 hover:bg-gray-700"
+                title="Flip order"
+              >Flip</button>
             </div>
 
             {/* FC Connector Housing */}
@@ -455,7 +599,7 @@ export default function PinoutVisualizer({
               <div className="bg-gray-900 rounded p-4 relative">
                 <div className="flex flex-col gap-3">
                   {fcConnector.pins.map((pin, index) => (
-                    <div key={pin.id} className="relative flex justify-start items-center h-12">
+                    <div key={pin.id} className="relative z-10 flex justify-start items-center h-12">
                       <PinComponent
                         pin={pin}
                         type="fc"
@@ -476,9 +620,18 @@ export default function PinoutVisualizer({
         {/* SVG Overlay for Wires */}
         <svg
           ref={svgRef}
-          className="absolute inset-0 w-full h-full pointer-events-none"
+          className="absolute inset-0 w-full h-full"
           style={{ zIndex: 1, top: 0, left: 0 }}
         >
+          <defs>
+            <filter id="wireGlow">
+              <feGaussianBlur stdDeviation="2.5" result="coloredBlur" />
+              <feMerge>
+                <feMergeNode in="coloredBlur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
           {/* Existing Connections */}
           {mappings.map((mapping, index) => {
             const escPin = escConnector.pins.find(p => p.id === mapping.escPin);
@@ -508,8 +661,22 @@ export default function PinoutVisualizer({
             // Create smooth curve
             const pathData = `M ${escX} ${escY} C ${controlPoint1X} ${controlPoint1Y}, ${controlPoint2X} ${controlPoint2Y}, ${fcX} ${fcY}`;
 
+            const onRemove = () => {
+              if (window.confirm('Remove this connection?')) {
+                removeMapping(mapping.escPin, mapping.fcPin);
+              }
+            };
+
+            // midpoint for delete indicator (approximate along curve)
+            const delX = (escX + fcX) / 2;
+            const delY = midY + sag * 0.6;
+
             return (
-              <g key={index}>
+              <g key={index}
+                 className="group cursor-pointer"
+                 onClick={onRemove}
+                 style={{ pointerEvents: 'auto' }}
+              >
                 {/* Wire Shadow */}
                 <path
                   d={pathData}
@@ -550,6 +717,12 @@ export default function PinoutVisualizer({
                   strokeLinecap="round"
                   transform="translate(0.5, 1)"
                 />
+
+                {/* Hover delete indicator */}
+                <g className="opacity-0 group-hover:opacity-100 transition-opacity duration-150" pointerEvents="none">
+                  <circle cx={delX} cy={delY} r={12} fill="rgba(0,0,0,0.6)" stroke="rgba(255,255,255,0.3)" />
+                  <text x={delX} y={delY + 4} textAnchor="middle" fontSize="14" fill="#fff">×</text>
+                </g>
 
                 {/* Wire delete control removed; delete now offered near ESC pins and in summary */}
               </g>

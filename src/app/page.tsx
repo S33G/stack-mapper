@@ -8,6 +8,7 @@ import PresetManager from '@/components/PresetManager';
 import BetaBadge from '@/components/BetaBadge';
 import ShareUrlLoader from '@/components/ShareUrlLoader';
 import ShareButtons from '@/components/ShareButtons';
+import Modal from '@/components/Modal';
 
 export default function Home() {
   const [appState, setAppState] = useState<AppState>({
@@ -20,21 +21,32 @@ export default function Home() {
 
   // Wizard step: 0 Welcome, 1 ESC, 2 FC, 3 Visualizer
   const [step, setStep] = useState<number>(0);
+  const [presetsOpen, setPresetsOpen] = useState(false);
 
   const updateESCConnector = (connector: Connector) => {
-    setAppState(prev => ({
-      ...prev,
-      escConnector: connector,
-      mappings: [] // Reset mappings when connector changes
-    }));
+    // Preserve existing mappings that still reference valid ESC pins
+    setAppState(prev => {
+      const validEscPinIds = new Set((connector?.pins || []).map(p => p.id));
+      const filteredMappings = (prev.mappings || []).filter(m => validEscPinIds.has(m.escPin));
+      return {
+        ...prev,
+        escConnector: connector,
+        mappings: filteredMappings,
+      };
+    });
   };
 
   const updateFCConnector = (connector: Connector) => {
-    setAppState(prev => ({
-      ...prev,
-      fcConnector: connector,
-      mappings: [] // Reset mappings when connector changes
-    }));
+    // Preserve existing mappings that still reference valid FC pins
+    setAppState(prev => {
+      const validFcPinIds = new Set((connector?.pins || []).map(p => p.id));
+      const filteredMappings = (prev.mappings || []).filter(m => validFcPinIds.has(m.fcPin));
+      return {
+        ...prev,
+        fcConnector: connector,
+        mappings: filteredMappings,
+      };
+    });
   };
 
   const updateMappings = (mappings: PinMapping[]) => {
@@ -227,6 +239,7 @@ export default function Home() {
                     fcConnector={appState.fcConnector}
                     mappings={appState.mappings}
                   />
+                  <button onClick={() => setPresetsOpen(true)} className="px-3 py-1 text-sm rounded border border-indigo-400 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20">Presets</button>
                   <button onClick={() => setStep(1)} className="px-3 py-1 text-sm rounded border border-gray-300 dark:border-gray-600">Edit ESC</button>
                   <button onClick={() => setStep(2)} className="px-3 py-1 text-sm rounded border border-gray-300 dark:border-gray-600">Edit FC</button>
                   <button onClick={() => setStep(0)} className="px-3 py-1 text-sm rounded text-gray-100 bg-gray-700 hover:bg-gray-800">Start Over</button>
@@ -239,22 +252,24 @@ export default function Home() {
                   mappings={appState.mappings}
                   onMappingsChange={updateMappings}
                   onQuickSave={quickSavePreset}
+                  onESCChange={updateESCConnector}
+                  onFCChange={updateFCConnector}
                 />
               ) : (
                 <p className="text-sm text-gray-600 dark:text-gray-300">Both connectors must be configured before mapping.</p>
               )}
             </div>
 
-            <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Save / Load Presets</h2>
+            {/* Presets Modal */}
+            <Modal open={presetsOpen} onClose={() => setPresetsOpen(false)} title="Save / Load Presets">
               <PresetManager
                 presets={appState.presets}
                 selectedPreset={appState.selectedPreset}
-                onPresetsChange={updatePresets}
-                onPresetSelect={loadPreset}
+                onPresetsChange={(p) => { updatePresets(p); try { localStorage.setItem('esc-fc-presets', JSON.stringify(p)); } catch {} }}
+                onPresetSelect={(id) => { loadPreset(id); setPresetsOpen(false); }}
                 currentState={appState}
               />
-            </div>
+            </Modal>
           </>
         )}
       </div>
